@@ -4,6 +4,8 @@ import io
 import logging
 import os
 import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import requests
 import torch
@@ -32,12 +34,11 @@ model = None
 processor = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-app = FastAPI(title="Sarashina2-Vision API", version="0.1.0", root_path=ROOT_PATH)
 
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    logger.info("Application startup...")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Load the ML model
+    logger.info("Application startup via lifespan...")
     global model, processor
     model_path = "sbintuitions/sarashina2-vision-8b"
     logger.info(f"Loading Sarashina2-Vision model and processor from {model_path} onto {device}...")
@@ -52,9 +53,14 @@ async def startup_event() -> None:
         logger.info("Sarashina2-Vision model and processor loaded successfully.")
     except Exception as e:
         logger.error(f"Error loading Sarashina2-Vision model/processor: {e}", exc_info=True)
-        # Depending on desired behavior, you might want to raise an error here
-        # or allow the app to start and handle errors at the endpoint level.
+        # Optionally re-raise or handle as critical startup failure
+    yield
+    # Clean up the ML models and release the resources
+    logger.info("Application shutdown via lifespan...")
+    # Add any cleanup logic here if needed in the future
 
+
+app = FastAPI(title="Sarashina2-Vision API", version="0.1.0", root_path=ROOT_PATH, lifespan=lifespan)
 
 # --- Pydantic Models for Sarashina API ---
 
