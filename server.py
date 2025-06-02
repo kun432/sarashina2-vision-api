@@ -67,10 +67,9 @@ app = FastAPI(title="Sarashina2-Vision API", version="0.1.0", root_path=ROOT_PAT
 
 class SarashinaGenerateRequest(BaseModel):
     prompt: str = Field(..., description="User's text prompt for the model.")
-    image_url: str | None = Field(default=None, description="URL of the image to process.")
+    image: str | None = Field(default=None, description="URL or Base64 encoded image data.")
     max_new_tokens: int | None = Field(default=128, ge=1, description="Maximum number of new tokens to generate.")
     temperature: float | None = Field(default=0.0, ge=0.0, le=2.0, description="Sampling temperature.")
-    image_base64: str | None = Field(default=None, description="Base64 encoded image data.")
 
 
 class SarashinaGenerateResponse(BaseModel):
@@ -100,64 +99,51 @@ async def generate_handler(request_data: SarashinaGenerateRequest) -> SarashinaG
         )
         logger.debug(f"Applied chat template, text_prompt_for_model: {text_prompt_for_model!r}")
 
-        # Prepare image
-        pil_image = None
-        images_for_processor = []
+        images_for_processor: list[Image.Image] | None = None
 
-        if request_data.image_url and request_data.image_base64:
-            logger.error("Both image_url and image_base64 provided. Please provide only one.")
-            raise HTTPException(
-                status_code=400,
-                detail="Both image_url and image_base64 were provided. Please use only one.",
-            )
+        if request_data.image:
+            image_input = request_data.image
+            if image_input.startswith("http://") or image_input.startswith("https://"):
+                logger.info(f"Fetching image from URL: {image_input}")
+                try:
+                    response = requests.get(image_input, stream=True, timeout=10)
+                    response.raise_for_status()
+                    pil_image = Image.open(io.BytesIO(response.content)).convert("RGB")
+                    images_for_processor = [pil_image]
+                    logger.info("Image fetched and converted to RGB successfully.")
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"Failed to fetch image from URL '{image_input}': {e}")
+                    raise HTTPException(status_code=400, detail=f"Failed to fetch image from URL: {str(e)}") from e
+                except Exception as e:
+                    logger.error(f"Invalid image at URL '{image_input}': {e}")
+                    raise HTTPException(status_code=400, detail=f"Invalid image at URL: {str(e)}") from e
+            else:
+                logger.info("Processing Base64 encoded image.")
+                try:
+                    base64_data_str = image_input
+                    if "," in base64_data_str:  # Handle data URI prefix
+                        base64_data_str = base64_data_str.split(",", 1)[1]
 
-        if request_data.image_url:
-            try:
-                logger.info(f"Fetching image from URL: {request_data.image_url}")
-                response = requests.get(request_data.image_url, stream=True, timeout=15)
-                response.raise_for_status()
-                pil_image = Image.open(response.raw).convert("RGB")
-                images_for_processor = [pil_image]
-                logger.info("Image fetched from URL and converted to RGB successfully.")
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to fetch image from URL {request_data.image_url}: {e}")
-                raise HTTPException(status_code=400, detail=f"Failed to fetch image from URL: {str(e)}") from e
-            except Exception as e:
-                logger.error(f"Failed to process image from URL {request_data.image_url}: {e}")
-                raise HTTPException(status_code=400, detail=f"Invalid image at URL: {str(e)}") from e
-        elif request_data.image_base64:
-            try:
-                logger.info("Processing base64 encoded image.")
-                base64_data_str = request_data.image_base64  # Pydanticから受け取るのは文字列
+                    if not re.fullmatch(r"[A-Za-z0-9+/]*={0,2}", base64_data_str):
+                        logger.warning("Base64 string contains invalid characters.")
+                        raise HTTPException(status_code=400, detail="Base64 string contains invalid characters.")
 
-                # データURIプレフィックスの除去 (例: "data:image/jpeg;base64,")
-                if "," in base64_data_str:
-                    base64_data_str = base64_data_str.split(",", 1)[1]
-
-                # Base64文字列が有効な文字のみで構成されているか検証
-                if not re.fullmatch(r"[A-Za-z0-9+/]*={0,2}", base64_data_str):
-                    logger.error(
-                        f"Base64 string contains invalid characters. Input starts with: {base64_data_str[:60]}..."
-                    )
-                    raise HTTPException(status_code=400, detail="Base64 string contains invalid characters.")
-
-                # Base64文字列をASCIIバイトにエンコードしてからデコード
-                image_bytes = base64.b64decode(base64_data_str.encode("ascii"))
-                pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-                images_for_processor = [pil_image]
-                logger.info("Base64 image decoded and converted to RGB successfully.")
-            except binascii.Error as e:  # パディングエラーなどもここでキャッチ
-                logger.error(f"Invalid base64 encoding (e.g., padding, incorrect characters): {e}")
-                raise HTTPException(status_code=400, detail=f"Invalid base64 encoding: {str(e)}") from e
-            except HTTPException:  # 意図的に投げたHTTPExceptionはそのまま再送出
-                raise
-            except Exception as e:  # その他の予期せぬエラー (PIL.Image.open のエラーなど)
-                logger.error(f"Failed to process base64 image: {e}", exc_info=True)
-                raise HTTPException(status_code=500, detail=f"Error processing base64 image: {str(e)}") from e
+                    image_bytes = base64.b64decode(base64_data_str.encode("ascii"))
+                    pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                    images_for_processor = [pil_image]
+                    logger.info("Base64 image decoded and converted to RGB successfully.")
+                except binascii.Error as e:
+                    logger.error(f"Invalid base64 encoding: {e}")
+                    raise HTTPException(status_code=400, detail=f"Invalid base64 encoding: {str(e)}") from e
+                except HTTPException:  # Re-raise if it's an HTTPException we threw
+                    raise
+                except Exception as e:
+                    logger.error(f"Error processing base64 image: {e}", exc_info=True)
+                    raise HTTPException(status_code=500, detail=f"Error processing base64 image: {str(e)}") from e
 
         logger.debug(
             f"Preparing inputs for processor. Text: {text_prompt_for_model!r}, "
-            f"Images: {len(images_for_processor)} image(s)"
+            f"Images: {len(images_for_processor) if images_for_processor is not None else 0} image(s)"
         )
         inputs = processor(
             text=[text_prompt_for_model],
