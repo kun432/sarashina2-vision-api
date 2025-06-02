@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from PIL import Image
 from pydantic import BaseModel, Field  # Moved to top with other third-party imports
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoProcessor, BitsAndBytesConfig
 
 # Load environment variables from .env file
 load_dotenv()
@@ -24,6 +24,7 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", 8000))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
 ROOT_PATH = os.getenv("ROOT_PATH", "")
+QUANTIZATION_MODE = os.getenv("QUANTIZATION_MODE", "none").lower()
 
 # Logging setup
 logging.basicConfig(level=LOG_LEVEL.upper(), format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -42,14 +43,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global model, processor
     model_path = "sbintuitions/sarashina2-vision-8b"
     logger.info(f"Loading Sarashina2-Vision model and processor from {model_path} onto {device}...")
+    logger.info(f"Quantization mode: {QUANTIZATION_MODE}")
+
+    quantization_config_params = {}
+    if QUANTIZATION_MODE == "4bit":
+        quantization_config_params["load_in_4bit"] = True
+    elif QUANTIZATION_MODE == "8bit":
+        quantization_config_params["load_in_8bit"] = True
+
+    quantization_config = None
+    if quantization_config_params:
+        quantization_config = BitsAndBytesConfig(**quantization_config_params)
+
     try:
         processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            device_map=device,
-            torch_dtype="auto",  # Let transformers handle dtype based on device/model
-            trust_remote_code=True,
-        )
+        model_kwargs = {
+            "device_map": device,
+            "torch_dtype": "auto",
+            "trust_remote_code": True,
+        }
+        if quantization_config:
+            model_kwargs["quantization_config"] = quantization_config
+
+        model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
         logger.info("Sarashina2-Vision model and processor loaded successfully.")
     except Exception as e:
         logger.error(f"Error loading Sarashina2-Vision model/processor: {e}", exc_info=True)
