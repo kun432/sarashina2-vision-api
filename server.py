@@ -25,6 +25,7 @@ PORT = int(os.getenv("PORT", 8000))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
 ROOT_PATH = os.getenv("ROOT_PATH", "")
 QUANTIZATION_MODE = os.getenv("QUANTIZATION_MODE", "none").lower()
+MODEL_NAME = os.getenv("MODEL_NAME", "sbintuitions/sarashina2-vision-8b")
 
 # Logging setup
 logging.basicConfig(level=LOG_LEVEL.upper(), format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -41,7 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Load the ML model
     logger.info("Application startup via lifespan...")
     global model, processor
-    model_path = "sbintuitions/sarashina2-vision-8b"
+    model_path = MODEL_NAME
     logger.info(f"Loading Sarashina2-Vision model and processor from {model_path} onto {device}...")
     logger.info(f"Quantization mode: {QUANTIZATION_MODE}")
 
