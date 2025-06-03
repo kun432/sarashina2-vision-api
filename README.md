@@ -21,7 +21,24 @@
     ```
 
 3.  **環境変数:**
-    `.env.example` (提供されている場合) から `.env` ファイルを作成し、`HOST`、`PORT`、`LOG_LEVEL` などの必要な環境変数を設定します。
+    `.env.example` を参考に `.env` ファイルを作成し、必要に応じて以下の環境変数を設定します。
+
+    -   `HOST`: APIサーバーがリッスンするホストアドレスです。デフォルトは `0.0.0.0` です。
+    -   `PORT`: APIサーバーがリッスンするポート番号です。デフォルトは `8000` です。
+    -   `LOG_LEVEL`: アプリケーションのログレベルを設定します (例: `info`, `debug`)。デフォルトは `info` です。
+    -   `QUANTIZATION_MODE`: モデル読み込み時の量子化モードを指定します（bitsandbytes）。
+        -   `4bit`: 4bit量子化を有効にします。
+        -   `8bit`: 8bit量子化を有効にします。
+        -   `none` (または未設定): 量子化を行いません (デフォルト)。
+    -   `MODEL_NAME`: 使用するHugging Faceのモデル名を指定します。デフォルトは `sbintuitions/sarashina2-vision-8b` です。
+        -   `sbintuitions/sarashina2-vision-8b` （デフォルト）
+        -   `sbintuitions/sarashina2-vision-14b`
+
+    `.env.example` には各変数の設定例が記載されています。通常、開発環境では `.env.example` をコピーして `.env` を作成し、値を調整します。
+    ```bash
+    cp .env.example .env
+    ```
+    その後、`.env` ファイルを編集してください。
 
 ## サーバーの実行
 
