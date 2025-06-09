@@ -181,6 +181,7 @@ async def generate_handler(request_data: SarashinaGenerateRequest) -> SarashinaG
             "max_new_tokens": request_data.max_new_tokens,
             "temperature": temp_for_generation,
             "do_sample": temp_for_generation > 0.0,
+            "repetition_penalty": 1.5,
         }
         if hasattr(processor, "tokenizer") and processor.tokenizer is not None:
             if processor.tokenizer.pad_token_id is not None:
